@@ -1,44 +1,33 @@
-import sys
-import os
-import json
-
-
-from urllib.request import urlopen, Request
-from pathlib import Path
 from random import randint, random, shuffle
 
 from krita import * # Krita, DockWidget
 
 from PyQt5.QtCore import QFile, QByteArray
-from PyQt5.QtWidgets import QDockWidget, QFileDialog, QWidget, QPushButton, QVBoxLayout, QLabel
-from PyQt5.QtGui import QIcon, QImage
+from PyQt5.QtWidgets import QDockWidget, QWidget, QPushButton, QVBoxLayout, QLabel
+from PyQt5.QtGui import QImage
 from PyQt5.uic import loadUi
 
 DOCKER_TITLE = 'Sander'
 
-
+# Element values
 AIR =   '0'
 SAND =  '1'
 WATER = '2'
 OIL =   '3'
 ROCK =  '4'
-BLOOD = '5'
+PAINT = '5'
 
-
+# Element values from RGBA
 AIRC =   [255, 255, 255, 255]
 SANDC =  [255, 255, 0,   255]
 WATERC = [0,   0,   255, 255]
 OILC =   [64,  64,   64, 255]
 ROCKC =  [128, 128, 128, 255]
-BLOODC = [255, 0, 0,   255]
-
-# WIDTH = 0
-# HEIGHT = 0
+PAINTC = [255, 0, 0,   255]
 
 
-# self.pixelBytes = QByteArray([])
-
-def getType(rgba):
+def getType(rgba: list):
+    """Returns type of pixel from RGBA values"""
     match rgba:
         case [255, 255, 255, 255]: 
             return AIR
@@ -49,23 +38,26 @@ def getType(rgba):
         case [128,128,128,255]: 
             return ROCK
         case [255, 0, 0,   255]: 
-            return BLOOD
+            return PAINT
         case _: 
             return "INVALID"
         
-def tofl(rgba: list):
+def tofl(rgba: list) -> list:
+    """Converts RGBA from 8-bit 0-255 to float 0.0-1.0"""
     return [x/255.0 for x in rgba]
 
-def unfl(rgba: list):
+def unfl(rgba: list) -> list:
+    """Converts RGBA from float 0.0-1.0 to 8-bit 0-255"""
     return [round(x*255) for x in rgba]
 
-def cmul(rgbaTop, rgbaBtm):
+def cmul(rgbaTop: list, rgbaBtm:list) -> list:
+    """Multiplies two RGBA float colors"""
     rgbaBtm = [x/255.0 for x in rgbaBtm]
     rgbaTop = [x/255.0 for x in rgbaTop]
     return unfl([rgbaTop[x]*rgbaBtm[x] for x in range(4)])
 
 def getRGBA (img: QByteArray, indx):
-    #takes whole xy pre div by 4
+    """Gets RGBA at indx from image img"""
     indx = int(4*indx)
     # BGRA TO RGBA
     return [int.from_bytes(img[indx + 2], 'little'), 
@@ -83,31 +75,27 @@ class Sander(DockWidget):
         super().__init__()
         self.setWindowTitle(DOCKER_TITLE)
 
-        #path = os.fspath(Path(__file__).resolve().parent / "form.ui")
-
-        #ui_file = QFile(path)
-        #ui_file.open(QFile.ReadOnly)
-        #self.uiForm = loadUi(ui_file)
-        #ui_file.close()
-
         mainWidget = QWidget(self)
+        mainWidget.setLayout(QVBoxLayout())
+
+    
+        label1 = QLabel("Read a valid layer first.")
+        mainWidget.layout().addWidget(label1)
 
         self.buttonRead = QPushButton("Read", mainWidget)
         self.buttonRead.clicked.connect(self.readLayer)
 
-        mainWidget.setLayout(QVBoxLayout())
+
         mainWidget.layout().addWidget(self.buttonRead)
 
-        ##self.label1 = QLabel("")
-        ##mainWidget.layout().addWidget(self.label1)
+        label2 = QLabel("Then you can advance any layer.")
+        mainWidget.layout().addWidget(label2)
 
         self.buttonAdv = QPushButton("Adv", mainWidget)
         self.buttonAdv.clicked.connect(self.advance)
         self.buttonAdv.setDisabled(True)
 
-        #mainWidget.setLayout(QVBoxLayout())
         mainWidget.layout().addWidget(self.buttonAdv)
-
 
         self.setWidget(mainWidget)
 
@@ -121,8 +109,7 @@ class Sander(DockWidget):
         self.HEIGHT = self.activeDocument.height()
         self.pixelBytes = QByteArray(self.activeNode.pixelData(0, 0, self.WIDTH, self.HEIGHT))
         self.elems = [getType(getRGBA(self.pixelBytes, x)) for x in range(0, self.WIDTH*self.HEIGHT)]
-        #  self.buttonRead.setText("".join(self.elems))
-        self.momentum = [0]*self.WIDTH*self.HEIGHT # x,y
+        self.momentum = [0]*self.WIDTH*self.HEIGHT
         self.hasColoredFlags = [False]*self.WIDTH*self.HEIGHT
         self.hasMovedFlags = [False]*self.WIDTH*self.HEIGHT
         self.buttonAdv.setDisabled(False)
@@ -137,7 +124,8 @@ class Sander(DockWidget):
         for ind in range(self.WIDTH*self.HEIGHT):
             self.hasMovedFlags[ind] = False
 
-        #for pix in range(0, len(self.pixelBytes)//4, -1):
+        # Bottom row first
+        # Columns are shuffled
         for y in reversed(range(0,self.HEIGHT)):
             tx = list(range(0,self.WIDTH))
             shuffle(tx)
@@ -167,7 +155,7 @@ class Sander(DockWidget):
                 else:
                     dirs = [[0,1], [1,1],[-1,1]]
 
-                if (thisElem == WATER or thisElem == OIL or thisElem == BLOOD) and (y<self.HEIGHT-1):
+                if (thisElem == WATER or thisElem == OIL or thisElem == PAINT) and (y<self.HEIGHT-1):
                     if (random() >= 0.5):
                         dirs.extend([[-1,0], [1,0]])
                     else:
@@ -178,8 +166,8 @@ class Sander(DockWidget):
                     self.move( x, y, x, y+1)
                     continue
 
-                # CHECK IF BLOOD OVER ROCK, THEN ENREDDEN AND REMOVE BLOOD
-                if (thisElem == BLOOD ) and (y<self.HEIGHT-1):
+                # CHECK IF PAINT OVER ROCK, THEN CMUL AND REMOVE PAINT
+                if (thisElem == PAINT ) and (y<self.HEIGHT-1):
                     
                     for xAdd,yAdd in dirs:
                         idx = self.imgind(x+xAdd,y+yAdd)
@@ -196,20 +184,21 @@ class Sander(DockWidget):
                             break
                 if doBreak == True: continue
                 
-                
-        imageData = QImage(self.pixelBytes, self.WIDTH, self.HEIGHT, QImage.Format_RGBA8888)
-        img = imageData.constBits() # sip.voidptr
-        img.setsize(self.pixelBytes.count())
-        imgBytes = QByteArray(img.asstring())
+        # Rewrite pixels to layer and refresh
+        
+        #imageData = QImage(self.pixelBytes, self.WIDTH, self.HEIGHT, QImage.Format_RGBA8888)
+        #img = imageData.constBits() # sip.voidptr
+        #img.setsize(self.pixelBytes.count())
+        #imgBytes = QByteArray(img.asstring())
 
-        self.activeNode.setPixelData(imgBytes, 0, 0, self.WIDTH, self.HEIGHT)
+        self.activeNode.setPixelData(self.pixelBytes, 0, 0, self.WIDTH, self.HEIGHT)
 
         self.activeDocument.refreshProjection()
 
-    def putRGBA(self, img: QByteArray, x,y, rgba):
+    def putRGBA(self, img: QByteArray, x: int,y: int, rgba: list) -> None:
         img.replace(int(self.imgind(x,y)*4), 4, bytearray([rgba[2],rgba[1],rgba[0],rgba[3]]))
 
-    def multiplyAndRemove(self, fromX, fromY, toX, toY):
+    def multiplyAndRemove(self, fromX: int, fromY: int, toX: int, toY: int) -> None:
         # get this/that pixel color
         thisColor = getRGBA(self.pixelBytes,self.imgind(fromX, fromY))
         thatColor = getRGBA(self.pixelBytes,self.imgind(toX, toY))
@@ -222,48 +211,45 @@ class Sander(DockWidget):
         # delete this pixel
         self.delPix(fromX, fromY)
 
-    def delPix(self, x,y):
+    def delPix(self, x: int,y: int) -> None:
         indx = self.imgind(x,y)
         self.putRGBA(self.pixelBytes, x, y, [255,255,255,255])
         self.elems[indx] = AIR
         self.momentum[indx] = 0
         # self.hasMovedFlags[indx] = True
 
-    def imgind(self, x, y): 
+    def imgind(self, x: int, y: int) -> int: 
         return int(x + y * self.WIDTH)
 
-    def canMove(self, substance, xTo, yTo):
+    def canMove(self, substance: str, xTo: int, yTo: int) -> bool:
 
         if (xTo<0 or xTo>=self.WIDTH or yTo<0 or yTo>=self.HEIGHT): return False
         # if getType(substance) == "INVALID": return False
         otherSubstance = self.elems[self.imgind(xTo,yTo)] # getRGBA(img,self.imgind(xTo,yTo)) ####img[ind(xTo, yTo)]
         # if (substance == FIRE): return (otherSubstance == OIL)
         if (otherSubstance == AIR): return True
-        if (substance == SAND and ((otherSubstance == WATER) or (otherSubstance == BLOOD)) and random() < 0.5): return True
+        if (substance == SAND and ((otherSubstance == WATER) or (otherSubstance == PAINT)) and random() < 0.5): return True
         return False
 
-    def move(self, fromX, fromY, toX, toY):
+    def move(self, fromX: int, fromY: int, toX: int, toY: int) -> None:
+        """Moves elem in both self.elems and current selected layer"""
         fromInd = self.imgind(fromX, fromY)
         toInd = self.imgind(toX, toY)
-
-        # self.pixelBytes = QByteArray(Krita.instance().activeDocument().activeNode().pixelData(0, 0, self.WIDTH, self.HEIGHT))
-
+        # Store a copy before swap, otherwise errors
         otherPixel = getRGBA(self.pixelBytes, toInd)
-        ##thisElem= getRGBA(self.pixelBytes, fromInd)
         otherElem = self.elems[toInd]
 
         self.elems[toInd] = self.elems[fromInd]
         self.elems[fromInd] = otherElem
 
-        self.putRGBA(self.pixelBytes, toX,  toY,   getRGBA(self.pixelBytes, fromInd)) 
-        self.putRGBA(self.pixelBytes, fromX,fromY, otherPixel)
-
-
+        self.putRGBA(self.pixelBytes, toX,    toY,   getRGBA(self.pixelBytes, fromInd)) 
+        self.putRGBA(self.pixelBytes, fromX,fromY,   otherPixel)
+        # Update moved flags
         self.hasMovedFlags[toInd] = True
         self.hasMovedFlags[fromInd] = True
 
         self.momentum[fromInd] = 0
-
+        # Update momentum based on previous X position
         if (toX > fromX): self.momentum[toInd] = 1
         elif (toX < fromX): self.momentum[toInd] = -1
         else: self.momentum[toInd] = 0
