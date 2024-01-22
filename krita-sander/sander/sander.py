@@ -143,19 +143,17 @@ class Sander(DockWidget):
             shuffle(tx)
             for x in tx:
                 pix = self.imgind(x,y)
-                
-                # whole pixel values, not individuals
-                # x = pix % self.WIDTH
-                # y = int(pix / self.WIDTH)
+                doBreak = False
+                # whole pixel values, not individual channels
 
-                #x = pix/4 % WIDTH
-                #y = int(pix/4 / WIDTH)
-
-                thisPixel = self.elems[pix]##getType(getRGBA(self.pixelBytes,  pix))
+                thisElem = self.elems[pix]
 
                 ## If we have X momentum, prefer moving in the same direction we previously moved.
                 ## Otherwise, pick left/right randomly, so there is no bias
                 checkLeftFirst = False
+                
+                # if (thisElem[3] == 0): continue
+                if (self.hasMovedFlags[pix] == True or thisElem == AIR or thisElem == ROCK): continue
 
                 if (self.momentum[pix] == -1): 
                     checkLeftFirst = True
@@ -163,74 +161,46 @@ class Sander(DockWidget):
                     checkLeftFirst = False
                 else:
                     checkLeftFirst = (random() < 0.5)
+
                 if checkLeftFirst:
                     dirs = [[0,1], [-1,1],[1,1]]
                 else:
                     dirs = [[0,1], [1,1],[-1,1]]
-                
-                # if (thisPixel[3] == 0): continue
-                if (self.hasMovedFlags[pix] == True or thisPixel == AIR or thisPixel == ROCK): continue
 
+                if (thisElem == WATER or thisElem == OIL or thisElem == BLOOD) and (y<self.HEIGHT-1):
+                    if (random() >= 0.5):
+                        dirs.extend([[-1,0], [1,0]])
+                    else:
+                        dirs.extend([[0,1], [-1,0]])
+
+                if (self.canMove( thisElem, x, y+1)):
+                    ## Ideally, we want to move down first
+                    self.move( x, y, x, y+1)
+                    continue
 
                 # CHECK IF BLOOD OVER ROCK, THEN ENREDDEN AND REMOVE BLOOD
-                if (thisPixel == BLOOD ) and (y<self.HEIGHT-1):
+                if (thisElem == BLOOD ) and (y<self.HEIGHT-1):
                     
-                    if (self.elems[self.imgind(x,y+1)] == ROCK) and (self.hasColoredFlags[self.imgind(x,y+1)] == False):
-                        self.multiplyAndRemove(x,y, x,y+1)
-                        continue
+                    for xAdd,yAdd in dirs:
+                        idx = self.imgind(x+xAdd,y+yAdd)
+                        if ((self.elems[idx] == ROCK)or(self.elems[idx] == SAND)) and (self.hasColoredFlags[idx] == False):
+                            self.multiplyAndRemove(x,y, x+xAdd,y+yAdd)
+                            doBreak = True
+                            break
 
-                if (self.canMove( thisPixel, x, y+1)):
-                    ## Ideally, we want to move down
-                    self.move( x, y, x, y+1)
+                if doBreak == True: continue
+                for xAdd,yAdd in dirs[1:]:
+                    if (self.canMove( thisElem, x+xAdd, y+yAdd)):
+                            self.move( x, y, x+xAdd, y+yAdd)
+                            doBreak=True
+                            break
+                if doBreak == True: continue
                 
-
                 
-
-                if (checkLeftFirst):
-                    if (self.canMove( thisPixel, x-1, y+1)):
-                    ##
-                    #Next, try to move down+left
-                        self.move( x, y, x-1, y+1)
-                    
-                    elif (self.canMove( thisPixel, x+1, y+1)):
-                        ## Next, try to move down+right
-                        self.move( x, y, x+1, y+1)
-                    
-                else:
-                    if (self.canMove( thisPixel, x+1, y+1)):
-                        ## Next, try to move down+right
-                        self.move( x, y, x+1, y+1)
-                    
-                    elif (self.canMove( thisPixel, x-1, y+1)):
-                        ## Next, try to move down+left
-                        self.move( x, y, x-1, y+1)
-                    
-
-
-                if (thisPixel == WATER or thisPixel == OIL or thisPixel == BLOOD) and (y<self.HEIGHT-1): # and (getRGBA(self.pixelBytes,  self.imgind(x,y+1)) == thisPixel)):
-                    ## If we're above a layer of water, spread out to left and right
-                    if (checkLeftFirst): 
-                        if (self.canMove( thisPixel, x-1, y)):
-                            ##Next, try to move left
-                            self.move( x, y, x-1, y)
-                        elif (self.canMove( thisPixel, x+1, y)): 
-                            ##Next, try to move right
-                            self.move( x, y, x+1, y)
-                    else: 
-                        if (self.canMove( thisPixel, x+1, y)): 
-                            ##Next, try to move right
-                            self.move( x, y, x+1, y)
-                        elif (self.canMove( thisPixel, x-1, y)): 
-                            ## Next, try to move left
-                            self.move( x, y, x-1, y)
-
         imageData = QImage(self.pixelBytes, self.WIDTH, self.HEIGHT, QImage.Format_RGBA8888)
         img = imageData.constBits() # sip.voidptr
         img.setsize(self.pixelBytes.count())
         imgBytes = QByteArray(img.asstring())
-
-        # print("og img bytes: " + str(imgBytes))
-        # print(pixelBytes == imgBytes)
 
         self.activeNode.setPixelData(imgBytes, 0, 0, self.WIDTH, self.HEIGHT)
 
@@ -254,10 +224,10 @@ class Sander(DockWidget):
 
     def delPix(self, x,y):
         indx = self.imgind(x,y)
-        self.putRGBA(self.pixelBytes, x,y, [255,255,255,255])
+        self.putRGBA(self.pixelBytes, x, y, [255,255,255,255])
         self.elems[indx] = AIR
         self.momentum[indx] = 0
-        self.hasMovedFlags[indx] = True
+        # self.hasMovedFlags[indx] = True
 
     def imgind(self, x, y): 
         return int(x + y * self.WIDTH)
@@ -269,7 +239,7 @@ class Sander(DockWidget):
         otherSubstance = self.elems[self.imgind(xTo,yTo)] # getRGBA(img,self.imgind(xTo,yTo)) ####img[ind(xTo, yTo)]
         # if (substance == FIRE): return (otherSubstance == OIL)
         if (otherSubstance == AIR): return True
-        if (substance == SAND and otherSubstance == WATER and random() < 0.5): return True
+        if (substance == SAND and ((otherSubstance == WATER) or (otherSubstance == BLOOD)) and random() < 0.5): return True
         return False
 
     def move(self, fromX, fromY, toX, toY):
@@ -279,7 +249,7 @@ class Sander(DockWidget):
         # self.pixelBytes = QByteArray(Krita.instance().activeDocument().activeNode().pixelData(0, 0, self.WIDTH, self.HEIGHT))
 
         otherPixel = getRGBA(self.pixelBytes, toInd)
-        ##thisPixel= getRGBA(self.pixelBytes, fromInd)
+        ##thisElem= getRGBA(self.pixelBytes, fromInd)
         otherElem = self.elems[toInd]
 
         self.elems[toInd] = self.elems[fromInd]
